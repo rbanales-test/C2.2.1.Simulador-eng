@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Filter & ADSR Envelope Simulator</title>
+    <style>
+        /* Coursera-inspired Academic UI */
+        :root {
+            --primary-blue: #0056D2;
+            --primary-hover: #00419e;
+            --bg-page: #FFFFFF;
+            --bg-panel: #F5F7FA;
+            --bg-module: #FFFFFF;
+            --text-main: #1F2431;
+            --text-muted: #63636B;
+            --border-color: #E2E6EA;
+            --focus-ring: rgba(0, 86, 210, 0.4);
+            
+            --color-filter: #007D69; 
+            --color-adsr: #0056D2;   
+            --color-lfo: #8A2BE2;    
+            --color-audio: #D93025;  
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            color: var(--text-main);
+            background-color: var(--bg-page);
+            line-height: 1.5;
+            padding: 2rem;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        /* --- MODAL DE INSTRUCCIONES --- */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(31, 36, 49, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: white;
+            max-width: 700px;
+            width: 90%;
+            padding: 2.5rem;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-content h1 {
+            margin-top: 0;
+            color: var(--primary-blue);
+            font-size: 1.5rem;
+        }
+
+        .tutorial-steps {
+            list-style-type: none;
+            padding: 0;
+            margin: 1.5rem 0;
+        }
+
+        .tutorial-steps li {
+            margin-bottom: 1rem;
+            padding-left: 2rem;
+            position: relative;
+        }
+
+        .tutorial-steps li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--color-filter);
+            font-weight: bold;
+        }
+
+        .btn-start-massive {
+            display: block;
+            width: 100%;
+            background: var(--primary-blue);
+            color: white;
+            font-size: 1.25rem;
+            font-weight: bold;
+            text-align: center;
+            padding: 1rem;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+            margin-top: 2rem;
+        }
+
+        .btn-start-massive:hover {
+            background: var(--primary-hover);
+        }
+
+        /* --- UI PRINCIPAL --- */
+        .simulator-container {
+            background: var(--bg-panel);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 1.5rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+            filter: blur(4px);
+            pointer-events: none;
+            transition: filter 0.5s ease;
+        }
+
+        .simulator-container.active {
+            filter: blur(0);
+            pointer-events: all;
+        }
+
+        .header-section {
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        h2 { margin: 0; font-size: 1.5rem; font-weight: 600; color: var(--text-main); }
+        
+        .synth-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .module {
+            background: var(--bg-module);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 1.5rem;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .module-header {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0; margin-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        .mod-master h3 { color: var(--color-audio); border-color: var(--color-audio); }
+        .mod-filter h3 { color: var(--color-filter); border-color: var(--color-filter); }
+        .mod-adsr h3 { color: var(--color-adsr); border-color: var(--color-adsr); }
+        .mod-lfo h3 { color: var(--color-lfo); border-color: var(--color-lfo); }
+
+        .canvas-container {
+            background: #111;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+            position: relative;
+        }
+        canvas { display: block; width: 100%; height: 180px; }
+        .canvas-label {
+            position: absolute; top: 5px; left: 10px;
+            color: rgba(255,255,255,0.8); font-size: 0.75rem; font-family: monospace;
+        }
+
+        .controls-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+        }
+
+        .control-group { display: flex; flex-direction: column; }
+        label { font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; display: flex; flex-direction: column; }
+        .value-display { font-weight: 400; color: var(--primary-blue); font-size: 0.8rem; }
+
+        input[type="range"] { width: 100%; margin: 0.5rem 0; cursor: pointer; }
+        select { padding: 0.4rem; font-size: 0.9rem; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; }
+
+        .btn-trigger {
+            background: white;
+            color: var(--text-main);
+            border: 2px solid var(--text-main);
+            padding: 1.5rem;
+            font-size: 1.2rem;
+            font-weight: bold;
+            width: 100%;
+            margin-top: 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.1s;
+        }
+        
+        .btn-trigger:hover { background: #f0f0f0; }
+        .btn-trigger:active, .btn-trigger.active { 
+            background: #e0e0e0; 
+            transform: translateY(4px); 
+            box-shadow: inset 0 4px 8px rgba(0,0,0,0.2); 
+            border-color: var(--primary-blue);
+        }
+
+        .btn-danger {
+            background: white; color: var(--color-audio); 
+            border: 2px solid var(--color-audio);
+            padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-weight: bold;
+        }
+
+        .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
+
+        @media (max-width: 900px) { .synth-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+
+    <div id="tutorial-modal" class="modal-overlay" role="dialog" aria-modal="true">
+        <div class="modal-content">
+            <h1 id="modal-title">Dynamic Filter and ADSR Envelope Simulator</h1>
+            <p>Welcome! Follow these steps to explore how filters and envelopes sculpt electronic audio over time:</p>
+            
+            <ul class="tutorial-steps">
+                <li><strong>Explore Filter Types:</strong> Select between Low-Pass, High-Pass, and Band-Pass modes. Drag the Cutoff Frequency to hear how it shapes a bright Sawtooth wave.</li>
+                <li><strong>Test Resonance Peak:</strong> Increase the Resonance (Q) slider to add a whistle-like quality directly at the cutoff point.</li>
+                <li><strong>Shape the Volume (ADSR):</strong> Set Attack to 500ms, Decay to 300ms, Sustain to 40%, and Release to 1000ms. Hold the virtual keyboard to see the curve tracer move.</li>
+                <li><strong>Apply LFO Modulation:</strong> Select "Filter Cutoff" as the LFO target, set Rate to 4Hz, and listen to the rhythmic "wah-wah" sweep.</li>
+            </ul>
+
+            <button id="btn-master-start" class="btn-start-massive">Got it! Start Audio Engine ▶</button>
+        </div>
+    </div>
+
+    <main id="main-simulator" class="simulator-container" aria-hidden="true">
+        <section class="header-section">
+            <h2>Synthesizer Workbench</h2>
+            <button id="btn-engine-stop" class="btn-danger" aria-pressed="false">⏸ Emergency Audio Stop</button>
+        </section>
+
+        <div id="aria-live-feedback" class="sr-only" aria-live="polite"></div>
+
+        <div class="synth-grid">
+            <div class="left-col" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                
+                <!-- SOURCE -->
+                <section class="module mod-master">
+                    <h3 class="module-header">1. Sound Source & Trigger</h3>
+                    <div class="controls-row">
+                        <div class="control-group">
+                            <label for="osc-wave">Waveform</label>
+                            <select id="osc-wave">
+                                <option value="sawtooth">Sawtooth (Bright & Rich)</option>
+                                <option value="square">Square (Hollow & Woody)</option>
+                                <option value="triangle">Triangle (Mellow)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button id="btn-trigger" class="btn-trigger" aria-label="Play Note">
+                        🎹 PRESS & HOLD NOTE
+                    </button>
+                </section>
+
+                <!-- LFO -->
+                <section class="module mod-lfo">
+                    <h3 class="module-header">2. LFO Modulation</h3>
+                    <div class="controls-row">
+                        <div class="control-group">
+                            <label for="lfo-target">Target</label>
+                            <select id="lfo-target">
+                                <option value="off">Off (None)</option>
+                                <option value="cutoff">Filter Cutoff (Wah-Wah)</option>
+                                <option value="pitch">Osc Pitch (Vibrato)</option>
+                                <option value="amp">Amplitude (Tremolo)</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label for="lfo-rate">Rate <span class="value-display" id="val-lfo-rate">4.0 Hz</span></label>
+                            <input type="range" id="lfo-rate" min="0.1" max="20" step="0.1" value="4.0">
+                        </div>
+                        <div class="control-group">
+                            <label for="lfo-depth">Depth <span class="value-display" id="val-lfo-depth">50 %</span></label>
+                            <input type="range" id="lfo-depth" min="0" max="100" step="1" value="50">
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <div class="right-col" style="display: flex; flex-direction: column; gap: 1.5rem;">
+                <!-- FILTER -->
+                <section class="module mod-filter">
+                    <h3 class="module-header">3. Voltage Controlled Filter (VCF)</h3>
+                    <div class="canvas-container">
+                        <div class="canvas-label">BODE PLOT & LIVE FFT</div>
+                        <canvas id="canvas-filter" width="500" height="150"></canvas>
+                    </div>
+                    <div class="controls-row">
+                        <div class="control-group">
+                            <label for="filter-type">Filter Mode</label>
+                            <select id="filter-type">
+                                <option value="lowpass">Low-Pass</option>
+                                <option value="highpass">High-Pass</option>
+                                <option value="bandpass">Band-Pass</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label for="filter-cutoff">Cutoff <span class="value-display" id="val-cutoff">1000 Hz</span></label>
+                            <input type="range" id="filter-cutoff" min="0" max="100" step="0.1" value="50">
+                        </div>
+                        <div class="control-group">
+                            <label for="filter-q">Resonance (Q) <span class="value-display" id="val-q">1.0</span></label>
+                            <input type="range" id="filter-q" min="0.5" max="20" step="0.1" value="1.0">
+                        </div>
+                    </div>
+                </section>
+
+                <!-- ADSR -->
+                <section class="module mod-adsr">
+                    <h3 class="module-header">4. ADSR Envelope (Volume)</h3>
+                    <div class="canvas-container">
+                        <div class="canvas-label">TIME DOMAIN SHAPE</div>
+                        <canvas id="canvas-adsr" width="500" height="120"></canvas>
+                    </div>
+                    <div class="controls-row">
+                        <div class="control-group">
+                            <label for="env-a">Attack <span class="value-display" id="val-env-a">500 ms</span></label>
+                            <input type="range" id="env-a" min="0" max="2000" step="10" value="500">
+                        </div>
+                        <div class="control-group">
+                            <label for="env-d">Decay <span class="value-display" id="val-env-d">300 ms</span></label>
+                            <input type="range" id="env-d" min="0" max="2000" step="10" value="300">
+                        </div>
+                        <div class="control-group">
+                            <label for="env-s">Sustain <span class="value-display" id="val-env-s">40 %</span></label>
+                            <input type="range" id="env-s" min="0" max="100" step="1" value="40">
+                        </div>
+                        <div class="control-group">
+                            <label for="env-r">Release <span class="value-display" id="val-env-r">1000 ms</span></label>
+                            <input type="range" id="env-r" min="0" max="3000" step="10" value="1000">
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- Estado Global ---
+        const state = {
+            audioOn: false,
+            notePlaying: false,
+            baseNoteFreq: 110, // A2
+            oscWave: 'sawtooth',
+            filter: { type: 'lowpass', cutoff: 1000, q: 1.0 },
+            env: { a: 500, d: 300, s: 40, r: 1000 },
+            lfo: { target: 'off', rate: 4.0, depth: 50 }
+        };
+
+        let audioCtx, masterGain, analyser;
+        let activeOsc, activeFilter, activeLfo, activeLfoDepthGain;
+        let noteStartTime = 0, releaseStartTime = 0;
+
+        // --- DOM Elements ---
+        const modal = document.getElementById('tutorial-modal');
+        const simulator = document.getElementById('main-simulator');
+        const btnMasterStart = document.getElementById('btn-master-start');
+        const btnStop = document.getElementById('btn-engine-stop');
+        const btnTrigger = document.getElementById('btn-trigger');
+        const ariaLive = document.getElementById('aria-live-feedback');
+
+        const canvasFilter = document.getElementById('canvas-filter');
+        const ctxFilter = canvasFilter.getContext('2d');
+        const canvasADSR = document.getElementById('canvas-adsr');
+        const ctxADSR = canvasADSR.getContext('2d');
+
+        function sliderToFreq(val) {
+            const minP = 0, maxP = 100;
+            const minV = Math.log(20), maxV = Math.log(20000);
+            const scale = (maxV - minV) / (maxP - minP);
+            return Math.exp(minV + scale * (val - minP));
+        }
+
+        // --- BINDING CORREGIDO (Seguro para <select>) ---
+        function bindControl(id, stateKey, subKey, unit, transformFunc = (v)=>v) {
+            const el = document.getElementById(id);
+            const disp = document.getElementById(`val-${id.replace('filter-', '').replace('env-', '').replace('lfo-', '')}`);
+            
+            el.addEventListener('input', (e) => {
+                const isSelect = el.tagName === 'SELECT';
+                // BUGFIX: Si es select, guarda el string. Si es slider, haz parseFloat.
+                let rawVal = isSelect ? e.target.value : parseFloat(e.target.value);
+                let finalVal = isSelect ? rawVal : transformFunc(rawVal);
+                
+                if(subKey) state[stateKey][subKey] = finalVal;
+                else state[stateKey] = finalVal;
+
+                if (disp && !isSelect) {
+                    if (unit === ' Hz' && finalVal > 1000) disp.textContent = `${(finalVal/1000).toFixed(2)} kHz`;
+                    else if (unit === ' Hz') disp.textContent = `${Math.round(finalVal)} Hz`;
+                    else disp.textContent = `${finalVal}${unit}`;
+                }
+
+                updateLiveParameters();
+                if (!state.notePlaying) { drawFilterBode(); drawADSR(); } 
+            });
+        }
+
+        bindControl('osc-wave', 'oscWave', null, '');
+        bindControl('filter-type', 'filter', 'type', '');
+        bindControl('filter-cutoff', 'filter', 'cutoff', ' Hz', sliderToFreq);
+        bindControl('filter-q', 'filter', 'q', '');
+        bindControl('env-a', 'env', 'a', ' ms');
+        bindControl('env-d', 'env', 'd', ' ms');
+        bindControl('env-s', 'env', 's', ' %');
+        bindControl('env-r', 'env', 'r', ' ms');
+        bindControl('lfo-target', 'lfo', 'target', '');
+        bindControl('lfo-rate', 'lfo', 'rate', ' Hz');
+        bindControl('lfo-depth', 'lfo', 'depth', ' %');
+
+        // --- MOTOR DE AUDIO ---
+        function initAudioEngine() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterGain = audioCtx.createGain();
+                masterGain.gain.value = 0.5; // Margen para resonancias agresivas
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 2048;
+                masterGain.connect(analyser);
+                analyser.connect(audioCtx.destination);
+            }
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            state.audioOn = true;
+            modal.style.display = 'none';
+            simulator.classList.add('active');
+            
+            drawFilterBode(); drawADSR(); renderLoop(); 
+        }
+
+        function stopAudioEngine() {
+            if (!audioCtx || !state.audioOn) return;
+            masterGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1); 
+            setTimeout(() => {
+                audioCtx.suspend();
+                state.audioOn = false;
+                alert("Audio Engine Paused. Refresh the page to start over.");
+            }, 150);
+        }
+
+        btnMasterStart.addEventListener('click', initAudioEngine);
+        btnStop.addEventListener('click', stopAudioEngine);
+
+        // --- LIVE UPDATES ---
+        function updateLiveParameters() {
+            if (!state.audioOn) return;
+            
+            if (activeOsc && state.oscWave) {
+                try { activeOsc.type = state.oscWave; } catch(e){}
+            }
+
+            if (activeFilter) {
+                activeFilter.type = state.filter.type;
+                activeFilter.Q.setTargetAtTime(state.filter.q, audioCtx.currentTime, 0.05);
+                if (state.lfo.target !== 'cutoff') {
+                    activeFilter.frequency.setTargetAtTime(state.filter.cutoff, audioCtx.currentTime, 0.05);
+                }
+            }
+
+            if (activeLfo) {
+                activeLfo.frequency.setTargetAtTime(state.lfo.rate, audioCtx.currentTime, 0.05);
+            }
+
+            if (activeLfoDepthGain) {
+                if (state.lfo.target === 'pitch') {
+                    activeLfoDepthGain.gain.setTargetAtTime(state.lfo.depth * 0.5, audioCtx.currentTime, 0.05);
+                } else if (state.lfo.target === 'cutoff') {
+                    activeLfoDepthGain.gain.setTargetAtTime(state.lfo.depth * 40, audioCtx.currentTime, 0.05);
+                } else if (state.lfo.target === 'amp') {
+                    activeLfoDepthGain.gain.setTargetAtTime(state.lfo.depth / 100, audioCtx.currentTime, 0.05);
+                }
+            }
+        }
+
+        // --- SÍNTESIS ADSR ---
+        function triggerNote() {
+            if (!state.audioOn || state.notePlaying) return;
+            state.notePlaying = true;
+            btnTrigger.classList.add('active');
+            
+            const now = audioCtx.currentTime;
+            noteStartTime = performance.now();
+
+            if (activeOsc) { activeOsc.disconnect(); }
+            if (activeLfo) { activeLfo.disconnect(); }
+
+            const osc = audioCtx.createOscillator();
+            const filter = audioCtx.createBiquadFilter();
+            const envGain = audioCtx.createGain();
+            const tremoloGain = audioCtx.createGain();
+            const lfo = audioCtx.createOscillator();
+            const lfoDepthGain = audioCtx.createGain();
+
+            osc.type = state.oscWave;
+            osc.frequency.value = state.baseNoteFreq;
+
+            filter.type = state.filter.type;
+            filter.frequency.value = state.filter.cutoff;
+            filter.Q.value = state.filter.q;
+
+            envGain.gain.value = 0; 
+            tremoloGain.gain.value = 1.0;
+
+            lfo.type = 'sine';
+            lfo.frequency.value = state.lfo.rate;
+            
+            if (state.lfo.target === 'pitch') {
+                lfoDepthGain.gain.value = state.lfo.depth * 0.5;
+                lfo.connect(lfoDepthGain); lfoDepthGain.connect(osc.frequency);
+            } else if (state.lfo.target === 'cutoff') {
+                lfoDepthGain.gain.value = state.lfo.depth * 40;
+                lfo.connect(lfoDepthGain); lfoDepthGain.connect(filter.frequency);
+            } else if (state.lfo.target === 'amp') {
+                lfoDepthGain.gain.value = state.lfo.depth / 100;
+                lfo.connect(lfoDepthGain); lfoDepthGain.connect(tremoloGain.gain);
+            }
+
+            osc.connect(filter);
+            filter.connect(tremoloGain);
+            tremoloGain.connect(envGain);
+            envGain.connect(masterGain);
+
+            // Tiempos seguros para evitar fallos matemáticos
+            const a = Math.max(state.env.a / 1000, 0.01);
+            const d = Math.max(state.env.d / 1000, 0.01);
+            const s = state.env.s / 100;
+
+            envGain.gain.cancelScheduledValues(now);
+            envGain.gain.setValueAtTime(0, now);
+            envGain.gain.linearRampToValueAtTime(1.0, now + a);
+            envGain.gain.setTargetAtTime(s, now + a, d / 4);
+
+            osc.start(now);
+            lfo.start(now); 
+            
+            activeOsc = osc;
+            activeFilter = filter;
+            activeLfo = lfo;
+            activeLfoDepthGain = lfoDepthGain;
+            activeOsc.envGain = envGain; 
+            activeOsc.lfoRef = lfo; 
+        }
+
+        function releaseNote() {
+            if (!state.notePlaying) return;
+            state.notePlaying = false;
+            btnTrigger.classList.remove('active');
+            
+            if (!activeOsc || !activeOsc.envGain) return;
+            
+            const now = audioCtx.currentTime;
+            const r = Math.max(state.env.r / 1000, 0.01);
+            releaseStartTime = performance.now();
+            
+            const envGain = activeOsc.envGain;
+            const oscToStop = activeOsc;
+            const lfoToStop = activeOsc.lfoRef;
+            
+            envGain.gain.cancelScheduledValues(now);
+            envGain.gain.setValueAtTime(envGain.gain.value, now);
+            envGain.gain.linearRampToValueAtTime(0, now + r);
+            
+            oscToStop.stop(now + r);
+            try { lfoToStop.stop(now + r); } catch(e) {} 
+        }
+
+        btnTrigger.addEventListener('pointerdown', (e) => { e.preventDefault(); triggerNote(); });
+        window.addEventListener('pointerup', releaseNote);
+        btnTrigger.addEventListener('pointerleave', () => { if(state.notePlaying) releaseNote(); });
+        
+        btnTrigger.addEventListener('keydown', (e) => { if((e.key === 'Enter' || e.key === ' ') && !e.repeat) triggerNote(); });
+        btnTrigger.addEventListener('keyup', (e) => { if(e.key === 'Enter' || e.key === ' ') releaseNote(); });
+
+        // --- SISTEMA VISUAL ---
+        function renderLoop() {
+            if (state.audioOn) { drawFilterBode(); drawADSR(); }
+            requestAnimationFrame(renderLoop);
+        }
+
+        function drawFilterBode() {
+            const width = canvasFilter.width, height = canvasFilter.height;
+            ctxFilter.clearRect(0, 0, width, height);
+            ctxFilter.fillStyle = '#111'; ctxFilter.fillRect(0,0,width,height); 
+
+            if (analyser && state.notePlaying) {
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                analyser.getByteFrequencyData(dataArray);
+
+                ctxFilter.fillStyle = 'rgba(0, 125, 105, 0.4)';
+                ctxFilter.beginPath(); ctxFilter.moveTo(0, height);
+
+                const minFreq = 20, maxFreq = 20000;
+                for (let i = 0; i < bufferLength; i++) {
+                    const freq = i * (audioCtx.sampleRate / 2) / bufferLength;
+                    if (freq < minFreq) continue;
+                    if (freq > maxFreq) break;
+                    const x = width * Math.log(freq / minFreq) / Math.log(maxFreq / minFreq);
+                    const y = height - (dataArray[i] / 255.0) * height;
+                    ctxFilter.lineTo(x, y);
+                }
+                ctxFilter.lineTo(width, height); ctxFilter.fill();
+            }
+
+            const offlineCtx = new (window.OfflineAudioContext || window.webkitOfflineAudioContext)(1, 44100, 44100);
+            const mathFilter = offlineCtx.createBiquadFilter();
+            mathFilter.type = state.filter.type;
+            
+            let currentCutoff = state.filter.cutoff;
+            if (state.notePlaying && state.lfo.target === 'cutoff') {
+                const elapsed = (performance.now() - noteStartTime) / 1000;
+                const lfoVal = Math.sin(2 * Math.PI * state.lfo.rate * elapsed);
+                currentCutoff += (state.lfo.depth * 40 * lfoVal); 
+                currentCutoff = Math.max(20, Math.min(20000, currentCutoff));
+            }
+            mathFilter.frequency.value = currentCutoff;
+            mathFilter.Q.value = state.filter.q;
+
+            const freqArray = new Float32Array(width), magResponse = new Float32Array(width), phaseResponse = new Float32Array(width);
+            const minFreq = 20, maxFreq = 20000;
+            for (let i = 0; i < width; i++) freqArray[i] = minFreq * Math.pow(maxFreq / minFreq, i / width);
+
+            mathFilter.getFrequencyResponse(freqArray, magResponse, phaseResponse);
+
+            ctxFilter.beginPath(); ctxFilter.strokeStyle = '#00f2c3'; ctxFilter.lineWidth = 3;
+            for (let i = 0; i < width; i++) {
+                let mag = magResponse[i], dbResponse = 20 * Math.log10(mag || 0.00001);
+                const maxDb = 20, minDb = -40;
+                const y = height - ((dbResponse - minDb) / (maxDb - minDb)) * height;
+                if (i === 0) ctxFilter.moveTo(i, y); else ctxFilter.lineTo(i, y);
+            }
+            ctxFilter.stroke();
+        }
+
+        function drawADSR() {
+            const width = canvasADSR.width, height = canvasADSR.height, padding = 15;
+            const drawWidth = width - padding * 2, drawHeight = height - padding * 2;
+            
+            ctxADSR.clearRect(0, 0, width, height);
+            ctxADSR.fillStyle = '#111'; ctxADSR.fillRect(0,0,width,height); 
+
+            const a = state.env.a, d = state.env.d, s = state.env.s / 100, r = state.env.r;
+            const maxTime = 7000, holdTime = 1500; 
+            const timeToX = (t) => padding + (t / maxTime) * drawWidth;
+
+            const x0 = timeToX(0), x1 = timeToX(a), x2 = timeToX(a + d), x3 = timeToX(a + d + holdTime), x4 = timeToX(a + d + holdTime + r);
+            const y0 = height - padding, y1 = padding, ySustain = height - padding - (s * drawHeight);
+
+            ctxADSR.beginPath(); ctxADSR.moveTo(x0, y0); ctxADSR.lineTo(x1, y1);
+            ctxADSR.lineTo(x2, ySustain); ctxADSR.lineTo(x3, ySustain); ctxADSR.lineTo(x4, y0);
+            
+            ctxADSR.fillStyle = 'rgba(0, 86, 210, 0.3)'; ctxADSR.fill();
+            ctxADSR.strokeStyle = '#3b82f6'; ctxADSR.lineWidth = 2; ctxADSR.stroke();
+
+            if (state.notePlaying) {
+                const now = performance.now();
+                let currentPosTime = 0;
+
+                if (btnTrigger.classList.contains('active')) {
+                    currentPosTime = now - noteStartTime;
+                    if (currentPosTime > (a + d)) currentPosTime = (a + d) + ((currentPosTime - (a+d)) % holdTime); 
+                } else {
+                    const timeInRelease = now - releaseStartTime;
+                    currentPosTime = (a + d + holdTime) + timeInRelease;
+                }
+
+                const playX = timeToX(currentPosTime);
+                if (playX <= x4) {
+                    ctxADSR.beginPath(); ctxADSR.moveTo(playX, padding); ctxADSR.lineTo(playX, height - padding);
+                    ctxADSR.strokeStyle = '#FF5A5F'; ctxADSR.lineWidth = 3; ctxADSR.stroke();
+                }
+            }
+        }
+    </script>
+</body>
+</html>
